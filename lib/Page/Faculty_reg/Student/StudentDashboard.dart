@@ -11,6 +11,8 @@ import 'package:provider/provider.dart';
 import '../../../Provider/ORController.dart';
 import 'StudentOR.dart';
 import 'RegisteredCourse.dart';
+import '../../Finance/stu_finance_dashboard.dart';
+import '../../../login.dart';
 
 class StudentDashboard extends StatefulWidget {
   final String studentID;
@@ -22,6 +24,7 @@ class StudentDashboard extends StatefulWidget {
 }
 
 class _StudentDashboardState extends State<StudentDashboard> {
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   // ── Student data dari Firestore ──────────────────────────────────────────
   String _studentName = '';
   String _programme = '';
@@ -158,7 +161,63 @@ class _StudentDashboardState extends State<StudentDashboard> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: const Color(0xFFF2F4F7),
+      drawer: Drawer(
+        child: Column(
+          children: [
+            UserAccountsDrawerHeader(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Color(0xFF11A06E), Color(0xFF48C598)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              currentAccountPicture: const CircleAvatar(
+                backgroundColor: Colors.white,
+                child: Icon(Icons.person, color: Color(0xFF11A06E), size: 40),
+              ),
+              accountName: const Text('Student Portal',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              accountEmail: Text('@student.umpsa.edu.my'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.dashboard, color: Color(0xFF11A06E)),
+              title: const Text('Main Home Dashboard'),
+              onTap: () => Navigator.pop(context),
+            ),
+            ListTile(
+              leading: const Icon(Icons.account_balance_wallet,
+                  color: Color(0xFF11A06E)),
+              title: const Text('Tuition Fee Finance'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (context) => StuFinanceDashboard(loggedInStudentMatricId: widget.studentID)),
+                );
+              },
+            ),
+            const Spacer(),
+            ListTile(
+              leading: const Icon(Icons.logout, color: Colors.red),
+              title: const Text('Logout',
+                  style: TextStyle(
+                      color: Colors.red, fontWeight: FontWeight.bold)),
+              onTap: () {
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (context) => const Login()),
+                  (route) => false,
+                );
+              },
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
       body: _isLoading
           ? const Center(
               child: CircularProgressIndicator(color: Color(0xFF1AAFA0)),
@@ -205,7 +264,14 @@ class _StudentDashboardState extends State<StudentDashboard> {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           child: Row(
             children: [
-              Icon(Icons.menu, color: Colors.white, size: 28),
+              // Locate her custom header menu trigger button and update the command:
+              IconButton(
+                icon: const Icon(Icons.menu, color: Colors.white, size: 28),
+                onPressed: () {
+                  // 👈 THIS SCRIPT TELLS FLUTTER TO TRIGGER THE HIDDEN DRAWER TO SLIDE OPEN DYNAMICALLY!
+                  _scaffoldKey.currentState?.openDrawer();
+                },
+              ),
               const Expanded(
                 child: Text(
                   'STUDENT ACADEMIC\nMANAGEMENT',
@@ -563,7 +629,13 @@ class _StudentDashboardState extends State<StudentDashboard> {
               Expanded(
                 child: _buildMenuButton(
                   label: 'Finance',
-                  onTap: () {},
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (context) => StuFinanceDashboard(loggedInStudentMatricId: widget.studentID)),
+                    );
+                  },
                 ),
               ),
             ],

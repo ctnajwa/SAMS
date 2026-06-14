@@ -6,13 +6,14 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 
 // Module Imports
-import '../../domain/sams_financial_model.dart';
 import '../../provider/sams_financial_controller.dart';
 import 'payment_successful.dart';
 import 'payment_unsuccessful.dart';
 
 class StuPayment extends StatefulWidget {
-  const StuPayment({super.key});
+  final String passedStudentMatricId;
+
+  const StuPayment({super.key, required this.passedStudentMatricId});
 
   @override
   State<StuPayment> createState() => _StuPaymentState();
@@ -29,8 +30,6 @@ class _StuPaymentState extends State<StuPayment> {
 
   String _paymentMethod = "FPX";
   String _selectedBank = "MAYBANK";
-
-  final String currentStudentMatricId = 'CB25007';
 
   // EmailJS Network pipeline execution script
   Future<void> _sendEmailReceipt({
@@ -82,6 +81,7 @@ class _StuPaymentState extends State<StuPayment> {
   ) async {
     final String amountInputText = _totalController.text.trim();
     final double? parsedAmount = double.tryParse(amountInputText);
+    final String currentStudentMatricId = widget.passedStudentMatricId;
 
     // If input is non-numeric, null, or zero, route immediately to the Unsuccessful page file
     if (parsedAmount == null || parsedAmount <= 0) {
@@ -170,6 +170,8 @@ class _StuPaymentState extends State<StuPayment> {
 
   @override
   Widget build(BuildContext context) {
+    final String currentStudentMatricId = widget.passedStudentMatricId;
+
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
       appBar: PreferredSize(

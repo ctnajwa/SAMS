@@ -4,25 +4,26 @@ import 'package:url_launcher/url_launcher.dart';
 import 'stu_payment.dart';
 
 class StuFinanceDashboard extends StatefulWidget {
-  const StuFinanceDashboard({super.key});
+  final String loggedInStudentMatricId;
+
+  const StuFinanceDashboard({
+    super.key,
+    required this.loggedInStudentMatricId,
+  });
 
   @override
-  State<StuFinanceDashboard> createState() => _StuFinanceDashboardState();
+  State<StuFinanceDashboard> createState() => _StuFinanceDashboardViewState();
 }
 
-class _StuFinanceDashboardState extends State<StuFinanceDashboard> {
-  // State control variable: toggles between Payment dashboard and Record ledger view
+class _StuFinanceDashboardViewState extends State<StuFinanceDashboard> {
   bool _showRecordView = false;
-
-  // Real-world dynamic token placeholder. In production, pass the authenticated student ID here!
-  final String currentStudentMatricId = 'CB25007';
 
   @override
   Widget build(BuildContext context) {
+    final String currentStudentMatricId = widget.loggedInStudentMatricId;
+
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
-
-      // 1. Student App Bar with Mint Green Theme parameters
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(140.0),
         child: AppBar(
@@ -77,8 +78,6 @@ class _StuFinanceDashboardState extends State<StuFinanceDashboard> {
           ),
         ),
       ),
-
-      // 2. Main White Rounded Body Container
       body: Container(
         width: double.infinity,
         height: double.infinity,
@@ -92,30 +91,30 @@ class _StuFinanceDashboardState extends State<StuFinanceDashboard> {
         child: FutureBuilder<DocumentSnapshot>(
           future: FirebaseFirestore.instance
               .collection('users')
-              .doc(currentStudentMatricId)
+              .doc(
+                  currentStudentMatricId) // 👈 Automatically fetches CB23001's document profile
               .get(),
           builder: (context, snapshot) {
-            if (snapshot.hasError)
+            if (snapshot.hasError) {
               return Center(child: Text('Error: ${snapshot.error}'));
+            }
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator());
             }
             if (!snapshot.hasData || !snapshot.data!.exists) {
-              return const Center(child: Text('Financial records missing.'));
+              return Center(
+                  child: Text(
+                      'Financial records missing for ID: $currentStudentMatricId'));
             }
 
             final studentData = snapshot.data!.data() as Map<String, dynamic>;
 
-            // Wrap interior variables inside stream to track receipt balance computations instantly
             return StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance
                   .collection('users')
                   .doc(currentStudentMatricId)
                   .collection('receipts')
-                  .orderBy(
-                    'timestamp',
-                    descending: false,
-                  ) // Oldest to newest chronologically
+                  .orderBy('timestamp', descending: false)
                   .snapshots(),
               builder: (context, receiptSnapshot) {
                 double totalReceivedAllSemesters = 0.0;
@@ -144,11 +143,11 @@ class _StuFinanceDashboardState extends State<StuFinanceDashboard> {
                   }
                 }
 
-                // Dynamic calculation: Base 1510 minus total current semester payments
                 double calculatedCurrentTotalFee =
                     1510.0 - currentSemReceivedAccumulator;
-                if (calculatedCurrentTotalFee < 0)
+                if (calculatedCurrentTotalFee < 0) {
                   calculatedCurrentTotalFee = 0.0;
+                }
 
                 return SingleChildScrollView(
                   padding: const EdgeInsets.all(24.0),
@@ -158,9 +157,7 @@ class _StuFinanceDashboardState extends State<StuFinanceDashboard> {
                       const Text(
                         'Student Finance',
                         style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                        ),
+                            fontSize: 24, fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 12),
 
@@ -187,13 +184,9 @@ class _StuFinanceDashboardState extends State<StuFinanceDashboard> {
                           ),
                           const Padding(
                             padding: EdgeInsets.symmetric(horizontal: 12.0),
-                            child: Text(
-                              '|',
-                              style: TextStyle(
-                                fontSize: 16,
-                                color: Colors.grey,
-                              ),
-                            ),
+                            child: Text('|',
+                                style: TextStyle(
+                                    fontSize: 16, color: Colors.grey)),
                           ),
                           GestureDetector(
                             onTap: () => setState(() => _showRecordView = true),
@@ -215,9 +208,9 @@ class _StuFinanceDashboardState extends State<StuFinanceDashboard> {
                       ),
                       const SizedBox(height: 24),
 
-                      // --- CONDITIONAL VIEW BLOCK SWITCH CODES ---
                       _showRecordView
                           ? _buildRecordView(
+                              currentStudentMatricId, // 👈 Pass down dynamically
                               studentData,
                               receiptDocs,
                               totalReceivedAllSemesters,
@@ -225,6 +218,7 @@ class _StuFinanceDashboardState extends State<StuFinanceDashboard> {
                               totalRefundAccumulator,
                             )
                           : _buildPaymentDashboardView(
+                              currentStudentMatricId, // 👈 Pass down dynamically
                               calculatedCurrentTotalFee,
                               studentData['status'] ?? 'NOT BLOCKED',
                             ),
@@ -239,8 +233,8 @@ class _StuFinanceDashboardState extends State<StuFinanceDashboard> {
     );
   }
 
-  // --- VIEW BLOCK A: THE PAYMENT DASHBOARD SUB-INTERFACE (PICTURE 1) ---
-  Widget _buildPaymentDashboardView(double unpaidBalance, String statusValue) {
+  Widget _buildPaymentDashboardView(
+      String matricId, double unpaidBalance, String statusValue) {
     return Column(
       children: [
         Container(
@@ -255,10 +249,7 @@ class _StuFinanceDashboardState extends State<StuFinanceDashboard> {
             ),
             boxShadow: const [
               BoxShadow(
-                color: Colors.black12,
-                blurRadius: 6,
-                offset: Offset(0, 3),
-              ),
+                  color: Colors.black12, blurRadius: 6, offset: Offset(0, 3)),
             ],
           ),
           child: Column(
@@ -266,19 +257,17 @@ class _StuFinanceDashboardState extends State<StuFinanceDashboard> {
               const Text(
                 'Unsettled Total',
                 style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w500,
-                ),
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w500),
               ),
               const SizedBox(height: 12),
               Text(
                 'RM ${unpaidBalance.toStringAsFixed(2)}',
                 style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 36,
-                  fontWeight: FontWeight.bold,
-                ),
+                    color: Colors.white,
+                    fontSize: 36,
+                    fontWeight: FontWeight.bold),
               ),
             ],
           ),
@@ -311,22 +300,23 @@ class _StuFinanceDashboardState extends State<StuFinanceDashboard> {
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF1632A8),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
+                  borderRadius: BorderRadius.circular(12)),
             ),
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const StuPayment()),
+                MaterialPageRoute(
+                  builder: (context) => StuPayment(
+                      passedStudentMatricId: matricId), // 👈 Passes ID to form
+                ),
               );
             },
             child: const Text(
               'PAY',
               style: TextStyle(
-                color: Colors.white,
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold),
             ),
           ),
         ),
@@ -334,8 +324,8 @@ class _StuFinanceDashboardState extends State<StuFinanceDashboard> {
     );
   }
 
-  // --- VIEW BLOCK B: THE DETAILED FINANCIAL RECORDS LEDGER SUB-INTERFACE (PICTURE 2) ---
   Widget _buildRecordView(
+    String matricId,
     Map<String, dynamic> data,
     List<QueryDocumentSnapshot> receipts,
     double totalRec,
@@ -346,17 +336,15 @@ class _StuFinanceDashboardState extends State<StuFinanceDashboard> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildLedgerRow('Name', data['name'] ?? 'N/A'),
-        _buildLedgerRow('Matric ID', currentStudentMatricId),
+        _buildLedgerRow('Matric ID', matricId), // 👈 Dynamic display
         _buildLedgerRow('Email', data['email'] ?? 'N/A'),
         _buildLedgerRow('Contact Number', data['contact'] ?? 'N/A'),
         Row(
           children: [
             const SizedBox(
               width: 140,
-              child: Text(
-                'Status',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-              ),
+              child: Text('Status',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
             ),
             Text(
               data['status'] ?? 'N/A',
@@ -381,18 +369,16 @@ class _StuFinanceDashboardState extends State<StuFinanceDashboard> {
             children: [
               const SizedBox(
                 width: 140,
-                child: Text(
-                  'Current Total Fee',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                ),
+                child: Text('Current Total Fee',
+                    style:
+                        TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
               ),
               Text(
                 'RM ${finalOutstandingBalance.toStringAsFixed(2)}',
                 style: const TextStyle(
-                  color: Colors.red,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
-                ),
+                    color: Colors.red,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15),
               ),
             ],
           ),
@@ -420,8 +406,6 @@ class _StuFinanceDashboardState extends State<StuFinanceDashboard> {
                 _TableCellHeader('Refund'),
               ],
             ),
-
-            // Dynamic Rolling Ledger list items injector helper builder
             ...(() {
               double runningSem2FeeBalance = 1510.0;
 
@@ -435,13 +419,11 @@ class _StuFinanceDashboardState extends State<StuFinanceDashboard> {
 
                 double displayRowBalance = 0.0;
 
-                // Only deduct rolling values if row item belongs to current active billed semester
                 if (semStr == 'SEM II 25/26' || semStr == 'SEM 2 25/26') {
                   runningSem2FeeBalance -= singleReceived;
                   displayRowBalance = runningSem2FeeBalance;
                 } else {
-                  displayRowBalance =
-                      0.00; // Legacy older items default clear settled display marker
+                  displayRowBalance = 0.00;
                 }
 
                 if (displayRowBalance < 0) displayRowBalance = 0.0;
@@ -455,26 +437,20 @@ class _StuFinanceDashboardState extends State<StuFinanceDashboard> {
                           if (docUrlString != null && docUrlString.isNotEmpty) {
                             final Uri urlValue = Uri.parse(docUrlString);
                             if (await canLaunchUrl(urlValue)) {
-                              await launchUrl(
-                                urlValue,
-                                mode: LaunchMode.externalApplication,
-                              );
+                              await launchUrl(urlValue,
+                                  mode: LaunchMode.externalApplication);
                             } else {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
-                                  content: Text(
-                                    'Could not open document link.',
-                                  ),
-                                ),
+                                    content:
+                                        Text('Could not open document link.')),
                               );
                             }
                           } else {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                content: Text(
-                                  'Receipt #$receiptNo has no attachment.',
-                                ),
-                              ),
+                                  content: Text(
+                                      'Receipt #$receiptNo has no attachment.')),
                             );
                           }
                         },
@@ -496,21 +472,17 @@ class _StuFinanceDashboardState extends State<StuFinanceDashboard> {
                     _TableCellText(rData['semester'] ?? ''),
                     _TableCellText(rData['paymentDate'] ?? ''),
                     _TableCellText(singleReceived.toStringAsFixed(2)),
+                    _TableCellText(displayRowBalance.toStringAsFixed(2),
+                        color: Colors.red),
                     _TableCellText(
-                      displayRowBalance.toStringAsFixed(2),
-                      color: Colors.red,
-                    ),
-                    _TableCellText(
-                      double.parse(
-                        (rData['refund'] ?? 0.0).toString(),
-                      ).toStringAsFixed(2),
+                      double.parse((rData['refund'] ?? 0.0).toString())
+                          .toStringAsFixed(2),
                       color: Colors.red,
                     ),
                   ],
                 );
               }).toList();
             })(),
-
             TableRow(
               children: [
                 const TableCell(child: SizedBox()),
@@ -518,24 +490,16 @@ class _StuFinanceDashboardState extends State<StuFinanceDashboard> {
                 const TableCell(
                   child: Padding(
                     padding: EdgeInsets.symmetric(vertical: 8.0),
-                    child: Text(
-                      'Total',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                      textAlign: TextAlign.center,
-                    ),
+                    child: Text('Total',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                        textAlign: TextAlign.center),
                   ),
                 ),
                 _TableCellText(totalRec.toStringAsFixed(2), isBold: true),
-                _TableCellText(
-                  finalOutstandingBalance.toStringAsFixed(2),
-                  isBold: true,
-                  color: Colors.red,
-                ),
-                _TableCellText(
-                  totalRef.toStringAsFixed(2),
-                  isBold: true,
-                  color: Colors.red,
-                ),
+                _TableCellText(finalOutstandingBalance.toStringAsFixed(2),
+                    isBold: true, color: Colors.red),
+                _TableCellText(totalRef.toStringAsFixed(2),
+                    isBold: true, color: Colors.red),
               ],
             ),
           ],
@@ -552,16 +516,13 @@ class _StuFinanceDashboardState extends State<StuFinanceDashboard> {
         children: [
           SizedBox(
             width: 140,
-            child: Text(
-              label,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-            ),
+            child: Text(label,
+                style:
+                    const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
           ),
           Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(fontSize: 15, color: Colors.black87),
-            ),
+            child: Text(value,
+                style: const TextStyle(fontSize: 15, color: Colors.black87)),
           ),
         ],
       ),
@@ -576,11 +537,9 @@ class _TableCellHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.all(4.0),
-      child: Text(
-        text,
-        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
-        textAlign: TextAlign.center,
-      ),
+      child: Text(text,
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+          textAlign: TextAlign.center),
     );
   }
 }
@@ -589,11 +548,8 @@ class _TableCellText extends StatelessWidget {
   final String text;
   final bool isBold;
   final Color color;
-  const _TableCellText(
-    this.text, {
-    this.isBold = false,
-    this.color = Colors.black87,
-  });
+  const _TableCellText(this.text,
+      {this.isBold = false, this.color = Colors.black87});
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -601,10 +557,9 @@ class _TableCellText extends StatelessWidget {
       child: Text(
         text,
         style: TextStyle(
-          fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
-          color: color,
-          fontSize: 11,
-        ),
+            fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+            color: color,
+            fontSize: 11),
         textAlign: TextAlign.center,
       ),
     );
