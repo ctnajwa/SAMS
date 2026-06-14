@@ -5,7 +5,13 @@ import '../../../Domain/ORModel.dart';
 
 class AddOR extends StatefulWidget {
   final Subject subject;
-  const AddOR({super.key, required this.subject});
+  final String semester; // ✅ Semester yang dipilih di SubjectManagement
+
+  const AddOR({
+    super.key,
+    required this.subject,
+    required this.semester,
+  });
 
   @override
   State<AddOR> createState() => _AddORState();
@@ -26,6 +32,19 @@ class _AddORState extends State<AddOR> {
 
   final List<String> _days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
   final List<String> _classTypes = ['Lecture', 'Tutorial', 'Lab'];
+
+  // ✅ Auto-generate sectID format SEC001, SEC002
+  String _generateSectID(List<String> existingDocIds) {
+    int max = 0;
+    for (final id in existingDocIds) {
+      final match = RegExp(r'^SEC(\d+)$').firstMatch(id);
+      if (match != null) {
+        final num = int.tryParse(match.group(1)!) ?? 0;
+        if (num > max) max = num;
+      }
+    }
+    return 'SEC${(max + 1).toString().padLeft(3, '0')}';
+  }
 
   @override
   void dispose() {
@@ -78,23 +97,13 @@ class _AddORState extends State<AddOR> {
 
     setState(() => _isSaving = true);
 
-    // ── TAMBAH: Ambil activeSession dari controller ──
     final controller = Provider.of<ORController>(context, listen: false);
-    final session = controller.activeSession;
 
-    if (session == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content:
-                Text('Tiada OR session aktif. Sila aktifkan session dahulu.')),
-      );
-      setState(() => _isSaving = false);
-      return;
-    }
-    // ────────────────────────────────────────────────
+    // ✅ sectID auto-generate format SEC001
+    final sectID = _generateSectID(controller.offeringsDocIds);
 
     final offering = OfferingRegistration(
-      sectID: DateTime.now().millisecondsSinceEpoch.toString(),
+      sectID: sectID,
       subCode: widget.subject.subCode,
       subName: widget.subject.subName,
       classType: _classType,
@@ -107,11 +116,14 @@ class _AddORState extends State<AddOR> {
       startTime: _startTimeController.text,
       endTime: _endTimeController.text,
       venue: _venueController.text.isEmpty ? 'TBA' : _venueController.text,
-      semester: session.semester, // ← ganti 'Sem 2'
-      session: session.sessionID, // ← ganti '2025/2026'
+      // ✅ Guna semester yang dipilih di SubjectManagement, bukan activeSession
+      semester: widget.semester,
+      // session field — boleh kosongkan/letak placeholder, tak digunakan untuk filter
+      session: '',
     );
 
     await controller.addOffering(offering);
+    await controller.loadData();
 
     setState(() => _isSaving = false);
 
@@ -119,7 +131,7 @@ class _AddORState extends State<AddOR> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('OR Section added successfully!')),
       );
-      Navigator.pop(context);
+      Navigator.pop(context, true);
     }
   }
 
@@ -244,6 +256,35 @@ class _AddORState extends State<AddOR> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // ✅ Tunjuk semester yang akan digunakan
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 14),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1A5F7A).withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                      color: const Color(0xFF1A5F7A).withOpacity(0.2)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.calendar_today,
+                        size: 14, color: Color(0xFF1A5F7A)),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Offering for: ${widget.semester}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF1A5F7A),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
               // Class Card
               _buildSectionCard(
                 title: 'Class',

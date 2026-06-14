@@ -106,7 +106,11 @@ class _StudentORState extends State<StudentOR> {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(
             children: [
-              const Icon(Icons.menu, color: Colors.white, size: 28),
+              IconButton(
+                icon: const Icon(Icons.arrow_back_ios_new,
+                    color: Colors.white, size: 20),
+                onPressed: () => Navigator.pop(context),
+              ),
               Expanded(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,

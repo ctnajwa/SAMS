@@ -50,13 +50,12 @@ class ORController extends ChangeNotifier {
     }
   }
 
+  // ✅ Filter ikut semester sahaja — semua offerings dalam semester yang sama
+  // available untuk semua year groups, tak kira sessionID OR period
   List<OfferingRegistration> get activeOfferings {
     final session = activeSession;
     if (session == null) return [];
-    return _offerings
-        .where((o) =>
-            o.semester == session.semester && o.session == session.sessionID)
-        .toList();
+    return _offerings.where((o) => o.semester == session.semester).toList();
   }
 
   List<Subject> get activeSubjects {
@@ -168,27 +167,13 @@ class ORController extends ChangeNotifier {
     }
   }
 
+  // ✅ Ambil SEMUA offerings tanpa filter semester di Firestore-side.
+  // Ini elak masalah mismatch format semester antara or_sessions dan offerings
+  // (contoh: "Sem 2" vs "Sem 2 25/26"). Filtering ikut semester (jika perlu)
+  // dibuat di UI layer (SubjectOffering/ViewEnrollment) menggunakan
+  // controller.offerings terus.
   void _listenToOfferings() {
-    final session = activeSession;
-
-    if (session == null) {
-      _firebaseService.getOfferingsWithIds().listen((offeringsWithIds) {
-        _offerings = [];
-        _offeringsDocIds = [];
-        for (final item in offeringsWithIds) {
-          _offeringsDocIds.add(item['id'] as String);
-          _offerings.add(item['data'] as OfferingRegistration);
-        }
-        _isLoading = false;
-        notifyListeners();
-      });
-      return;
-    }
-
-    _firebaseService
-        .getOfferingsWithIds(
-            semester: session.semester, session: session.sessionID)
-        .listen(
+    _firebaseService.getOfferingsWithIds().listen(
       (offeringsWithIds) {
         _offerings = [];
         _offeringsDocIds = [];
@@ -276,10 +261,7 @@ class ORController extends ChangeNotifier {
     await loadData();
   }
 
-  Future<void> activateORSession(String studentYear, bool isActive) async {
-    await _firebaseService.activateORSession(studentYear, isActive);
-    await loadData();
-  }
+  // ✅ activateORSession tidak diperlukan — isActive auto-calculate dari tarikh masa
 
   // ═══════════════════════════════════════════════════════════════════════════
   // STUDENT REGISTRATION — registerSubject()

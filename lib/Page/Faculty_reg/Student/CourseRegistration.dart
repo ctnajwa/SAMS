@@ -2,7 +2,7 @@
 // FILE: lib/Page/OR/CourseRegistrationPage.dart
 // Boundary Class — PACK108-SAMS-2026 (CourseRegistration)
 // Ref: SDD Section 4.1.8 CourseRegistration
-// Image 2: Pilih section (Lecture + Lab/Tutorial) dan daftar
+// ✅ Lab/Tutorial sections kini filter mengikut prefix lecture yang dipilih
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'package:flutter/material.dart';
@@ -37,9 +37,17 @@ class _CourseRegistrationState extends State<CourseRegistration> {
   List<OfferingRegistration> get _lectureSections =>
       widget.offerings.where((o) => o.classType == 'Lecture').toList();
 
-  List<OfferingRegistration> get _secondarySections => widget.offerings
-      .where((o) => o.classType == 'Lab' || o.classType == 'Tutorial')
-      .toList();
+  // ✅ Secondary sections — filter mengikut prefix lecture yang DIPILIH.
+  // Contoh: lecture '01' dipilih → hanya '01A', '01B' ditunjukkan (bukan '02A').
+  List<OfferingRegistration> get _secondarySections {
+    if (_selectedLecture == null) return [];
+    final lectSectNo = _selectedLecture!.sectNo;
+    return widget.offerings
+        .where((o) =>
+            (o.classType == 'Lab' || o.classType == 'Tutorial') &&
+            o.sectNo.startsWith(lectSectNo))
+        .toList();
+  }
 
   bool get _hasSecondary => _secondarySections.isNotEmpty;
 
@@ -54,11 +62,21 @@ class _CourseRegistrationState extends State<CourseRegistration> {
   @override
   void initState() {
     super.initState();
-    // Auto-select first available (not full) section
-    _selectedLecture = _lectureSections.where((o) => !o.isFull).firstOrNull;
+    // Auto-select first available (not full) lecture section
+    _selectedLecture = _lectureSections.where((o) => !o.isFull).firstOrNull ??
+        (_lectureSections.isNotEmpty ? _lectureSections.first : null);
+
+    // ✅ Auto-select secondary berdasarkan lecture yang terpilih
+    _autoSelectSecondary();
+  }
+
+  void _autoSelectSecondary() {
     if (_hasSecondary) {
       _selectedSecondary =
-          _secondarySections.where((o) => !o.isFull).firstOrNull;
+          _secondarySections.where((o) => !o.isFull).firstOrNull ??
+              _secondarySections.first;
+    } else {
+      _selectedSecondary = null;
     }
   }
 
@@ -127,6 +145,8 @@ class _CourseRegistrationState extends State<CourseRegistration> {
                 _buildSubjectInfoCard(),
                 const SizedBox(height: 16),
                 _buildLectureSectionCard(),
+                // ✅ Lab/Tutorial card sentiasa ditunjukkan SELEPAS lecture,
+                // dan akan auto-refresh ikut lecture yang dipilih
                 if (_hasSecondary) ...[
                   const SizedBox(height: 16),
                   _buildSecondarySectionCard(),
@@ -250,7 +270,12 @@ class _CourseRegistrationState extends State<CourseRegistration> {
                 showLecturer: true,
                 onTap: o.isFull
                     ? null
-                    : () => setState(() => _selectedLecture = o),
+                    : () => setState(() {
+                          _selectedLecture = o;
+                          // ✅ Lecture berubah → refresh secondary selection
+                          // supaya hanya tunjuk lab/tutorial dengan prefix sama
+                          _autoSelectSecondary();
+                        }),
               ),
               if (!isLast)
                 const Divider(
@@ -266,7 +291,11 @@ class _CourseRegistrationState extends State<CourseRegistration> {
 
   Widget _buildSecondarySectionCard() {
     return _SectionCard(
-      title: _secondaryLabel,
+      // ✅ Tunjuk section lecture yang dipilih dalam title, contoh
+      // "Lab Section (for Lecture 01)"
+      title: _selectedLecture != null
+          ? '$_secondaryLabel  ·  Lecture ${_selectedLecture!.sectNo}'
+          : _secondaryLabel,
       child: Column(
         children: _secondarySections.asMap().entries.map((entry) {
           final idx = entry.key;

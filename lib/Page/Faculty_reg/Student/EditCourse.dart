@@ -2,13 +2,13 @@
 // FILE: lib/Page/OR/EditCourse.dart
 // Boundary Class — PACK110-SAMS-2026 (EditCourse)
 // Ref: SDD Section 4.1.10 EditCourse
+// ✅ Lab/Tutorial sections kini filter mengikut prefix lecture yang dipilih
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../Provider/ORController.dart';
 import '../../../Domain/ORModel.dart';
-// ✅ FIX 1: Buang unused import 'RegisteredCourse.dart'
 
 class EditCourse extends StatefulWidget {
   final Subject subject;
@@ -36,9 +36,17 @@ class _EditCourseState extends State<EditCourse> {
   List<OfferingRegistration> get _lectureSections =>
       widget.offerings.where((o) => o.classType == 'Lecture').toList();
 
-  List<OfferingRegistration> get _secondarySections => widget.offerings
-      .where((o) => o.classType == 'Lab' || o.classType == 'Tutorial')
-      .toList();
+  // ✅ Secondary sections — filter mengikut prefix lecture yang DIPILIH.
+  // Contoh: lecture '01' dipilih → hanya '01A', '01B' ditunjukkan (bukan '02A').
+  List<OfferingRegistration> get _secondarySections {
+    if (_selectedLecture == null) return [];
+    final lectSectNo = _selectedLecture!.sectNo;
+    return widget.offerings
+        .where((o) =>
+            (o.classType == 'Lab' || o.classType == 'Tutorial') &&
+            o.sectNo.startsWith(lectSectNo))
+        .toList();
+  }
 
   bool get _hasSecondary => _secondarySections.isNotEmpty;
 
@@ -54,21 +62,35 @@ class _EditCourseState extends State<EditCourse> {
     super.initState();
     _selectedLecture = _lectureSections.firstWhere(
       (o) => o.sectID == widget.currentLectSectID,
-      orElse: () => _lectureSections.isNotEmpty
-          ? _lectureSections.first
-          : _lectureSections.first,
+      orElse: () => _lectureSections.first,
     );
 
-    if (_hasSecondary && widget.currentSecSectID.isNotEmpty) {
-      _selectedSecondary = _secondarySections.firstWhere(
-        (o) => o.sectID == widget.currentSecSectID,
-        orElse: () => _secondarySections.first,
-      );
-    } else if (_hasSecondary) {
-      _selectedSecondary =
-          _secondarySections.where((o) => !o.isFull).firstOrNull ??
-              _secondarySections.first;
+    // ✅ Selepas lecture diset, cari secondary yang sepadan dengan currentSecSectID
+    // (kalau ada dalam list secondary untuk lecture ni)
+    _autoSelectSecondary(preferCurrent: true);
+  }
+
+  // ✅ Auto-select secondary berdasarkan lecture yang terpilih
+  void _autoSelectSecondary({bool preferCurrent = false}) {
+    if (!_hasSecondary) {
+      _selectedSecondary = null;
+      return;
     }
+
+    if (preferCurrent && widget.currentSecSectID.isNotEmpty) {
+      final match = _secondarySections
+          .where((o) => o.sectID == widget.currentSecSectID)
+          .firstOrNull;
+      if (match != null) {
+        _selectedSecondary = match;
+        return;
+      }
+    }
+
+    // Default: pilih yang belum penuh, atau yang pertama
+    _selectedSecondary =
+        _secondarySections.where((o) => !o.isFull).firstOrNull ??
+            _secondarySections.first;
   }
 
   bool get _hasChanges {
@@ -78,7 +100,6 @@ class _EditCourseState extends State<EditCourse> {
     return lectChanged || secChanged;
   }
 
-  // ✅ FIX 2: Guna classType dari offering object, bukan hardcode 'Lecture'
   Future<void> _onSave() async {
     if (!_hasChanges) {
       _showSnack('No changes made.', isError: false);
@@ -100,7 +121,7 @@ class _EditCourseState extends State<EditCourse> {
     if (_selectedLecture!.sectID != widget.currentLectSectID) {
       error = await ctrl.editRegistration(
         subCode: widget.subject.subCode,
-        classType: _selectedLecture!.classType, // ✅ FIXED: guna dari object
+        classType: _selectedLecture!.classType,
         newOffering: _selectedLecture!,
       );
     }
@@ -111,7 +132,7 @@ class _EditCourseState extends State<EditCourse> {
         _selectedSecondary!.sectID != widget.currentSecSectID) {
       error = await ctrl.editRegistration(
         subCode: widget.subject.subCode,
-        classType: _selectedSecondary!.classType, // ✅ FIXED: guna dari object
+        classType: _selectedSecondary!.classType,
         newOffering: _selectedSecondary!,
       );
     }
@@ -159,6 +180,8 @@ class _EditCourseState extends State<EditCourse> {
                 _buildSubjectInfoCard(),
                 const SizedBox(height: 16),
                 _buildLectureSectionCard(),
+                // ✅ Lab/Tutorial card sentiasa selepas lecture, auto-refresh
+                // ikut lecture yang dipilih
                 if (_hasSecondary) ...[
                   const SizedBox(height: 16),
                   _buildSecondarySectionCard(),
@@ -279,7 +302,14 @@ class _EditCourseState extends State<EditCourse> {
                 showLecturer: true,
                 onTap: o.isFull
                     ? null
-                    : () => setState(() => _selectedLecture = o),
+                    : () => setState(() {
+                          _selectedLecture = o;
+                          // ✅ Lecture berubah → refresh secondary selection
+                          // supaya hanya tunjuk lab/tutorial dengan prefix sama.
+                          // preferCurrent: false sebab lecture dah ditukar,
+                          // current secondary (lecture lama) tak relevan lagi.
+                          _autoSelectSecondary(preferCurrent: false);
+                        }),
               ),
               if (!isLast)
                 const Divider(
@@ -293,7 +323,10 @@ class _EditCourseState extends State<EditCourse> {
 
   Widget _buildSecondarySectionCard() {
     return _SectionCard(
-      title: _secondaryLabel,
+      // ✅ Tunjuk lecture yang dipilih dalam title untuk konteks jelas
+      title: _selectedLecture != null
+          ? '$_secondaryLabel  ·  Lecture ${_selectedLecture!.sectNo}'
+          : _secondaryLabel,
       child: Column(
         children: _secondarySections.asMap().entries.map((entry) {
           final idx = entry.key;

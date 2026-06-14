@@ -22,7 +22,7 @@ class _SubjectManagementState extends State<SubjectManagement> {
     'Short semester'
   ];
 
-   @override
+  @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -161,14 +161,26 @@ class _SubjectManagementState extends State<SubjectManagement> {
                         color: Color(0xFF1A5F7A),
                       ),
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 4),
+                    // ✅ Info — semester yang dipilih akan digunakan
+                    // bila tambah offering baru (AddOR)
+                    Text(
+                      'Selected semester will be used when adding new sections.',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey.shade500,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
                     Column(
                       children: semesters.map((semester) {
                         final bool isSelected = selectedSemester == semester;
                         return GestureDetector(
                           onTap: () {
                             setState(() {
-                              selectedSemester = isSelected ? null : semester;
+                              // ✅ Sekali diklik, terus set (tak boleh unselect)
+                              // sebab AddOR perlukan semester yang valid
+                              selectedSemester = semester;
                               searchQuery = '';
                               _searchController.clear();
                             });
@@ -208,13 +220,35 @@ class _SubjectManagementState extends State<SubjectManagement> {
               if (selectedSemester != null)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                  child: Text(
-                    'Available subject',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF1A5F7A),
-                    ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Available subject',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF1A5F7A),
+                        ),
+                      ),
+                      // ✅ Tunjuk semester yang sedang dipilih
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1A5F7A).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          selectedSemester!,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFF1A5F7A),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
 
@@ -222,7 +256,17 @@ class _SubjectManagementState extends State<SubjectManagement> {
               Expanded(
                 child: selectedSemester != null
                     ? _buildSubjectList(context, controller)
-                    : const SizedBox(),
+                    : Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Text(
+                            'Please select a semester to view and add subjects.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                                color: Colors.grey[500], fontSize: 13),
+                          ),
+                        ),
+                      ),
               ),
 
               // ── Add subject button ─────────────────────────────────────
@@ -251,7 +295,7 @@ class _SubjectManagementState extends State<SubjectManagement> {
                       padding: const EdgeInsets.symmetric(vertical: 13),
                     ),
                     child: const Text(
-                      '+ Add subject',
+                      'Add subject',
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
@@ -358,13 +402,20 @@ class _SubjectManagementState extends State<SubjectManagement> {
 
               // Add button
               OutlinedButton(
-                onPressed: () {
-                  Navigator.push(
+                onPressed: () async {
+                  // ✅ Pass selectedSemester ke AddOR
+                  final result = await Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => AddOR(subject: subject),
+                      builder: (context) => AddOR(
+                        subject: subject,
+                        semester: selectedSemester!,
+                      ),
                     ),
                   );
+                  if (result == true) {
+                    controller.loadData();
+                  }
                 },
                 style: OutlinedButton.styleFrom(
                   side: const BorderSide(color: Color(0xFFB2D8E8), width: 1),

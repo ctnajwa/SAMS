@@ -1,6 +1,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // FILE: lib/Page/Student/StudentDashboard.dart
 // Boundary Class — Student Dashboard
+// ✅ Menu/Registered-course buttons guna InkWell ripple (bukan warna statik)
+// ✅ OR session status guna ORController.activeSession (auto isActive)
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'package:flutter/material.dart';
@@ -28,11 +30,11 @@ class _StudentDashboardState extends State<StudentDashboard> {
   int _totalSubjects = 0;
   int _totalCreditHours = 0;
 
-  // ── OR Session data ──────────────────────────────────────────────────────
-  bool _orActive = false;
-  String _orPeriod = '';
-
   bool _isLoading = true;
+
+  // ✅ ORController khusus untuk dashboard ini — supaya boleh akses
+  // activeSession (auto isActive dari tarikh+masa)
+  final ORController _orController = ORController();
 
   @override
   void initState() {
@@ -60,46 +62,9 @@ class _StudentDashboardState extends State<StudentDashboard> {
         });
       }
 
-      // 2. Load OR session aktif
-      final orQuery = await FirebaseFirestore.instance
-          .collection('orSessions')
-          .where('isActive', isEqualTo: true)
-          .limit(1)
-          .get();
-
-      if (!mounted) return;
-
-      if (orQuery.docs.isNotEmpty) {
-        final orData = orQuery.docs.first.data();
-        final startDate = DateTime.tryParse(orData['startDate'] ?? '');
-        final endDate = DateTime.tryParse(orData['endDate'] ?? '');
-
-        String period = '';
-        if (startDate != null && endDate != null) {
-          const months = [
-            '',
-            'Jan',
-            'Feb',
-            'Mar',
-            'Apr',
-            'May',
-            'Jun',
-            'Jul',
-            'Aug',
-            'Sep',
-            'Oct',
-            'Nov',
-            'Dec'
-          ];
-          period =
-              '${startDate.day} ${months[startDate.month]} - ${endDate.day} ${months[endDate.month]}';
-        }
-
-        setState(() {
-          _orActive = orData['isActive'] ?? false;
-          _orPeriod = period;
-        });
-      }
+      // 2. ✅ Load OR session melalui ORController — isActive auto-calculate
+      // dari tarikh+masa (bukan field 'isActive' dalam Firestore)
+      await _orController.loadData();
 
       // 3. Load registered courses untuk student ni
       final regQuery = await FirebaseFirestore.instance
@@ -240,11 +205,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           child: Row(
             children: [
-              IconButton(
-                icon: const Icon(Icons.arrow_back_ios_new,
-                    color: Colors.white, size: 20),
-                onPressed: () => Navigator.pop(context),
-              ),
+              Icon(Icons.menu, color: Colors.white, size: 28),
               const Expanded(
                 child: Text(
                   'STUDENT ACADEMIC\nMANAGEMENT',
@@ -414,104 +375,134 @@ class _StudentDashboardState extends State<StudentDashboard> {
   }
 
   // ── OR Session Card ──────────────────────────────────────────────────────
+  // ✅ Status & period diambil dari ORController.activeSession,
+  // isActive dikira auto dari tarikh+masa (bukan field statik dalam Firestore)
   Widget _buildORSessionCard() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF1AAFA0), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'OR session',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF1A1A2E),
-                ),
+    return AnimatedBuilder(
+      animation: _orController,
+      builder: (context, _) {
+        final session = _orController.activeSession;
+        final isActive = session?.isActive ?? false;
+        final period = session?.displayDateRange ?? '';
+
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFF1AAFA0), width: 1.5),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.04),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
               ),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: _orActive
-                      ? const Color(0xFFD6F5F1)
-                      : Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  _orActive ? 'Active' : 'Inactive',
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'OR session',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF1A1A2E),
+                    ),
+                  ),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: isActive
+                          ? const Color(0xFFD6F5F1)
+                          : Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      // ✅ Active / Upcoming / Inactive ikut session sebenar
+                      isActive
+                          ? 'Active'
+                          : (session?.statusLabel ?? 'Inactive'),
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                        color: isActive
+                            ? const Color(0xFF0D8C7F)
+                            : Colors.grey.shade500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Text(
+                    'Status',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      color: Colors.grey.shade500,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              if (period.isNotEmpty)
+                Text(
+                  'Period: $period',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Color(0xFF1A1A2E),
+                    fontWeight: FontWeight.w500,
+                  ),
+                )
+              else
+                Text(
+                  'No OR period set yet.',
                   style: TextStyle(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w600,
-                    color: _orActive
-                        ? const Color(0xFF0D8C7F)
-                        : Colors.grey.shade500,
+                    fontSize: 13,
+                    color: Colors.grey.shade400,
+                  ),
+                ),
+              const SizedBox(height: 12),
+              // ✅ Button "Registered course" — InkWell ripple, tiada warna statik
+              SizedBox(
+                width: double.infinity,
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: _goToRegisteredCourse,
+                    borderRadius: BorderRadius.circular(8),
+                    splashColor: const Color(0xFF1AAFA0).withOpacity(0.15),
+                    highlightColor: const Color(0xFF1AAFA0).withOpacity(0.08),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: const Color(0xFFCCCCCC)),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Center(
+                        child: Text(
+                          'Registered course',
+                          style: TextStyle(
+                            color: Color(0xFF1A1A2E),
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Text(
-                'Status',
-                style: TextStyle(
-                  fontSize: 12.5,
-                  color: Colors.grey.shade500,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          if (_orPeriod.isNotEmpty)
-            Text(
-              'Period: $_orPeriod',
-              style: const TextStyle(
-                fontSize: 13,
-                color: Color(0xFF1A1A2E),
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton(
-              // ── UPDATED: navigate ke RegisteredCoursePage ──
-              onPressed: _goToRegisteredCourse,
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: Color(0xFFCCCCCC)),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                padding: const EdgeInsets.symmetric(vertical: 10),
-              ),
-              child: const Text(
-                'Registered course',
-                style: TextStyle(
-                  color: Color(0xFF1A1A2E),
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -547,7 +538,6 @@ class _StudentDashboardState extends State<StudentDashboard> {
               Expanded(
                 child: _buildMenuButton(
                   label: 'Course Registration',
-                  isActive: true,
                   onTap: _goToCourseRegistration,
                 ),
               ),
@@ -555,7 +545,6 @@ class _StudentDashboardState extends State<StudentDashboard> {
               Expanded(
                 child: _buildMenuButton(
                   label: 'My Courses',
-                  isActive: false,
                   onTap: () {},
                 ),
               ),
@@ -567,7 +556,6 @@ class _StudentDashboardState extends State<StudentDashboard> {
               Expanded(
                 child: _buildMenuButton(
                   label: 'Co-curriculum',
-                  isActive: false,
                   onTap: () {},
                 ),
               ),
@@ -575,7 +563,6 @@ class _StudentDashboardState extends State<StudentDashboard> {
               Expanded(
                 child: _buildMenuButton(
                   label: 'Finance',
-                  isActive: false,
                   onTap: () {},
                 ),
               ),
@@ -586,27 +573,31 @@ class _StudentDashboardState extends State<StudentDashboard> {
     );
   }
 
+  // ✅ Menu button — semua start neutral (grey), tukar warna sekejap
+  // bila ditekan melalui InkWell ripple/highlight (bukan warna statik tetap)
   Widget _buildMenuButton({
     required String label,
-    required bool isActive,
     required VoidCallback onTap,
   }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
-        decoration: BoxDecoration(
-          color: isActive ? const Color(0xFF1AAFA0) : const Color(0xFFF2F4F7),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Center(
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: isActive ? Colors.white : const Color(0xFF1A1A2E),
+    return Material(
+      color: const Color(0xFFF2F4F7),
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        splashColor: const Color(0xFF1AAFA0).withOpacity(0.25),
+        highlightColor: const Color(0xFF1AAFA0).withOpacity(0.12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+          child: Center(
+            child: Text(
+              label,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF1A1A2E),
+              ),
             ),
           ),
         ),

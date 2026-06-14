@@ -36,13 +36,11 @@ class FirebaseService {
   // SDD Section Table: sectID adalah PK — guna sebagai Firestore doc ID
   // Ini konsisten dengan SDD dan mengelakkan kekeliruan antara sectID dan Firestore docId
 
-  Stream<List<Map<String, dynamic>>> getOfferingsWithIds(
-      {String? semester, String? session}) {
+  // ✅ Filter ikut semester sahaja — session/sessionID tak relevan untuk offerings
+  Stream<List<Map<String, dynamic>>> getOfferingsWithIds({String? semester}) {
     Query query = _firestore.collection('offerings');
-    if (semester != null && session != null) {
-      query = query
-          .where('semester', isEqualTo: semester)
-          .where('session', isEqualTo: session);
+    if (semester != null) {
+      query = query.where('semester', isEqualTo: semester);
     }
     return query.snapshots().map((snapshot) {
       List<Map<String, dynamic>> result = [];
@@ -151,10 +149,10 @@ class FirebaseService {
 
   // ========== OR SESSION OPERATIONS ==========
   Future<void> saveORSession(ORSession session) async {
-    await _firestore.collection('or_sessions').add({
+    // ✅ Tidak simpan isActive — dikira auto dari tarikh dan masa
+    await _firestore.collection('or_sessions').doc(session.sessionID).set({
       'sessionID': session.sessionID,
       'semester': session.semester,
-      'isActive': session.isActive,
       'studentYear': session.studentYear,
       'startDate': session.startDate.toIso8601String(),
       'endDate': session.endDate.toIso8601String(),
@@ -171,28 +169,21 @@ class FirebaseService {
       sessions.add(ORSession(
         sessionID: data['sessionID'] as String? ?? '',
         semester: data['semester'] as String? ?? '',
-        isActive: data['isActive'] as bool? ?? false,
+        // ✅ isActive dikira auto — tidak perlu dari Firestore
         studentYear: data['studentYear'] as String? ?? '',
         startDate: DateTime.tryParse(data['startDate'] as String? ?? '') ??
             DateTime.now(),
         endDate: DateTime.tryParse(data['endDate'] as String? ?? '') ??
             DateTime.now(),
-        startTime: data['startTime'] as String? ?? '',
-        endTime: data['endTime'] as String? ?? '',
+        startTime: data['startTime'] as String? ?? '00:00',
+        endTime: data['endTime'] as String? ?? '23:59',
       ));
     }
     return sessions;
   }
 
-  Future<void> activateORSession(String studentYear, bool isActive) async {
-    final snapshot = await _firestore
-        .collection('or_sessions')
-        .where('studentYear', isEqualTo: studentYear)
-        .get();
-    for (var doc in snapshot.docs) {
-      await doc.reference.update({'isActive': isActive});
-    }
-  }
+  // ✅ activateORSession tidak diperlukan lagi
+  // isActive dikira auto dari startDate+startTime hingga endDate+endTime
 
   // ========== STUDENT REGISTRATION OPERATIONS ==========
   // SDD Registration Table: regID adalah PK — guna sebagai Firestore doc ID

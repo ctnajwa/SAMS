@@ -13,8 +13,6 @@ class ViewEnrollment extends StatefulWidget {
 class _ViewEnrollmentState extends State<ViewEnrollment> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
-
-  // Track locally closed sections (docId set)
   final Set<String> _closedSections = {};
 
   @override
@@ -31,7 +29,6 @@ class _ViewEnrollmentState extends State<ViewEnrollment> {
     super.dispose();
   }
 
-  // ── Confirm close dialog ──────────────────────────────────────────────────
   void _confirmClose(
       BuildContext context, OfferingRegistration offering, String docId) {
     showDialog(
@@ -41,10 +38,9 @@ class _ViewEnrollmentState extends State<ViewEnrollment> {
         title: Text(
           '${offering.subCode} - ${offering.sectNo}',
           style: const TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 16,
-            color: Color(0xFF1A2D3D),
-          ),
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+              color: Color(0xFF1A2D3D)),
         ),
         content: const Text(
           'Do you really want to close this section?',
@@ -106,35 +102,39 @@ class _ViewEnrollmentState extends State<ViewEnrollment> {
       backgroundColor: const Color(0xFFEEF3F7),
       body: Consumer<ORController>(
         builder: (context, controller, _) {
-          // Stats
           final offerings = controller.offerings;
           final docIds = controller.offeringsDocIds;
 
-          final totalEnrolled =
-              offerings.fold<int>(0, (sum, o) => sum + o.enrolled);
-          final openSections = offerings
-              .where((o) =>
-                  !o.isFull &&
-                  !_closedSections.contains(docIds[offerings.indexOf(o)]))
-              .length;
-          final fullSections = offerings.where((o) => o.isFull).length;
-
-          // Filter
-          final filtered = <MapEntry<String, OfferingRegistration>>[];
+          // Lab/Tutorial sections sahaja
+          final secondaryOfferings = <MapEntry<String, OfferingRegistration>>[];
           for (int i = 0; i < offerings.length; i++) {
-            final o = offerings[i];
-            final q = _searchQuery.toLowerCase();
-            if (q.isEmpty ||
-                o.subCode.toLowerCase().contains(q) ||
-                o.subName.toLowerCase().contains(q) ||
-                o.sectNo.toLowerCase().contains(q)) {
-              filtered.add(MapEntry(docIds[i], o));
+            if (offerings[i].classType != 'Lecture') {
+              secondaryOfferings.add(MapEntry(docIds[i], offerings[i]));
             }
           }
 
+          // ✅ Total enrolled dikira dari Lab/Tutorial sahaja,
+          // konsisten dengan Section rate card di bawah
+          final totalEnrolled = secondaryOfferings.fold<int>(
+              0, (sum, e) => sum + e.value.enrolled);
+          final openSections = secondaryOfferings
+              .where((e) => !e.value.isFull && !_closedSections.contains(e.key))
+              .length;
+          final fullSections =
+              secondaryOfferings.where((e) => e.value.isFull).length;
+
+          // Filter search
+          final filtered = secondaryOfferings.where((e) {
+            final o = e.value;
+            final q = _searchQuery.toLowerCase();
+            return q.isEmpty ||
+                o.subCode.toLowerCase().contains(q) ||
+                o.sectNo.toLowerCase().contains(q);
+          }).toList();
+
           return Column(
             children: [
-              // ── Gradient Header ────────────────────────────────────────
+              // ── Header ────────────────────────────────────────────────
               Container(
                 decoration: const BoxDecoration(
                   gradient: LinearGradient(
@@ -154,10 +154,10 @@ class _ViewEnrollmentState extends State<ViewEnrollment> {
                               color: Colors.white, size: 20),
                           onPressed: () => Navigator.pop(context),
                         ),
-                        const Expanded(
+                        Expanded(
                           child: Column(
                             children: [
-                              Text(
+                              const Text(
                                 'View Enrollment',
                                 style: TextStyle(
                                   color: Colors.white,
@@ -165,13 +165,12 @@ class _ViewEnrollmentState extends State<ViewEnrollment> {
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
-                              SizedBox(height: 2),
+                              const SizedBox(height: 2),
                               Text(
-                                'Sem 2 2025/2026',
-                                style: TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 12,
-                                ),
+                                controller.activeSession?.semester ??
+                                    'Sem 2 2025/2026',
+                                style: const TextStyle(
+                                    color: Colors.white70, fontSize: 12),
                               ),
                             ],
                           ),
@@ -201,26 +200,26 @@ class _ViewEnrollmentState extends State<ViewEnrollment> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // ── Stats row ────────────────────────────
+                            // ── Stats ────────────────────────────────
                             Row(
                               children: [
                                 _buildStatCard(
                                   value: totalEnrolled.toString(),
-                                  label: 'Enrolled',
+                                  label: 'Total\nEnrolled',
                                   valueColor: const Color(0xFF1A7FC4),
                                   bgColor: const Color(0xFFDDEFF9),
                                 ),
                                 const SizedBox(width: 10),
                                 _buildStatCard(
                                   value: openSections.toString(),
-                                  label: 'Sections\nopen',
+                                  label: 'Sections\nOpen',
                                   valueColor: const Color(0xFF27AE60),
                                   bgColor: const Color(0xFFD5F0E0),
                                 ),
                                 const SizedBox(width: 10),
                                 _buildStatCard(
                                   value: fullSections.toString(),
-                                  label: 'Full',
+                                  label: 'Sections\nFull',
                                   valueColor: const Color(0xFFE08C2D),
                                   bgColor: const Color(0xFFFAEDD5),
                                 ),
@@ -248,8 +247,19 @@ class _ViewEnrollmentState extends State<ViewEnrollment> {
                                 decoration: InputDecoration(
                                   hintText: 'Search',
                                   hintStyle: TextStyle(color: Colors.grey[400]),
-                                  suffixIcon: const Icon(Icons.search,
+                                  prefixIcon: const Icon(Icons.search,
                                       color: Color(0xFF1A5F7A)),
+                                  suffixIcon: _searchQuery.isNotEmpty
+                                      ? IconButton(
+                                          icon: Icon(Icons.clear,
+                                              color: Colors.grey[400],
+                                              size: 18),
+                                          onPressed: () {
+                                            _searchController.clear();
+                                            setState(() => _searchQuery = '');
+                                          },
+                                        )
+                                      : null,
                                   border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(14),
                                     borderSide: BorderSide.none,
@@ -263,7 +273,7 @@ class _ViewEnrollmentState extends State<ViewEnrollment> {
                             ),
                             const SizedBox(height: 14),
 
-                            // ── Section rate card ────────────────────
+                            // ── Section Rate Card ─────────────────────
                             Container(
                               width: double.infinity,
                               padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
@@ -281,7 +291,6 @@ class _ViewEnrollmentState extends State<ViewEnrollment> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  // Title row
                                   Row(
                                     mainAxisAlignment:
                                         MainAxisAlignment.spaceBetween,
@@ -314,27 +323,29 @@ class _ViewEnrollmentState extends State<ViewEnrollment> {
                                     ],
                                   ),
                                   const SizedBox(height: 6),
-
-                                  // List
                                   if (filtered.isEmpty)
                                     Padding(
                                       padding: const EdgeInsets.symmetric(
                                           vertical: 24),
                                       child: Center(
                                         child: Text(
-                                          'No sections found',
+                                          _searchQuery.isEmpty
+                                              ? 'No Lab/Tutorial sections found'
+                                              : 'No results for "$_searchQuery"',
                                           style: TextStyle(
                                               color: Colors.grey[500]),
                                         ),
                                       ),
                                     )
                                   else
-                                    ...filtered.map((entry) {
-                                      final docId = entry.key;
-                                      final o = entry.value;
+                                    ...filtered.asMap().entries.map((entry) {
+                                      final idx = entry.key;
+                                      final docId = entry.value.key;
+                                      final o = entry.value.value;
                                       final isClosed =
                                           _closedSections.contains(docId);
                                       final isFull = o.isFull;
+                                      final isLast = idx == filtered.length - 1;
 
                                       return Column(
                                         children: [
@@ -343,52 +354,20 @@ class _ViewEnrollmentState extends State<ViewEnrollment> {
                                                 vertical: 11),
                                             child: Row(
                                               children: [
-                                                // Section code
+                                                // ✅ Simple: "BCS2344 - 01A"
+                                                // Merah kalau full
                                                 Expanded(
-                                                  child: Row(
-                                                    children: [
-                                                      Text(
-                                                        '${o.subCode} - ${o.sectNo}',
-                                                        style: const TextStyle(
-                                                          fontSize: 13,
-                                                          fontWeight:
-                                                              FontWeight.w600,
-                                                          color:
-                                                              Color(0xFF1A2D3D),
-                                                        ),
-                                                      ),
-                                                      if (isFull) ...[
-                                                        const SizedBox(
-                                                            width: 6),
-                                                        Container(
-                                                          padding:
-                                                              const EdgeInsets
-                                                                  .symmetric(
-                                                                  horizontal: 6,
-                                                                  vertical: 2),
-                                                          decoration:
-                                                              BoxDecoration(
-                                                            color: const Color(
-                                                                0xFFFAEDD5),
-                                                            borderRadius:
-                                                                BorderRadius
-                                                                    .circular(
-                                                                        6),
-                                                          ),
-                                                          child: const Text(
-                                                            'full',
-                                                            style: TextStyle(
-                                                              fontSize: 10,
-                                                              color: Color(
-                                                                  0xFFE08C2D),
-                                                              fontWeight:
-                                                                  FontWeight
-                                                                      .w600,
-                                                            ),
-                                                          ),
-                                                        ),
-                                                      ],
-                                                    ],
+                                                  child: Text(
+                                                    '${o.subCode} - ${o.sectNo}',
+                                                    style: TextStyle(
+                                                      fontSize: 13,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                      color: isFull
+                                                          ? Colors.red
+                                                          : const Color(
+                                                              0xFF1A2D3D),
+                                                    ),
                                                   ),
                                                 ),
 
@@ -397,7 +376,9 @@ class _ViewEnrollmentState extends State<ViewEnrollment> {
                                                   '${o.enrolled}/${o.quota}',
                                                   style: TextStyle(
                                                     fontSize: 12,
-                                                    color: Colors.grey[500],
+                                                    color: isFull
+                                                        ? Colors.red
+                                                        : Colors.grey[500],
                                                     fontWeight: FontWeight.w500,
                                                   ),
                                                 ),
@@ -445,19 +426,32 @@ class _ViewEnrollmentState extends State<ViewEnrollment> {
                                                                   vertical: 7),
                                                           decoration:
                                                               BoxDecoration(
-                                                            color: const Color(
-                                                                0xFFE8F0F5),
+                                                            color: isFull
+                                                                ? Colors
+                                                                    .red.shade50
+                                                                : const Color(
+                                                                    0xFFE8F0F5),
                                                             borderRadius:
                                                                 BorderRadius
                                                                     .circular(
                                                                         8),
+                                                            border: isFull
+                                                                ? Border.all(
+                                                                    color: Colors
+                                                                        .red
+                                                                        .shade200,
+                                                                    width: 1)
+                                                                : null,
                                                           ),
-                                                          child: const Text(
+                                                          child: Text(
                                                             'Close',
                                                             style: TextStyle(
                                                               fontSize: 12,
-                                                              color: Color(
-                                                                  0xFF1A5F7A),
+                                                              color: isFull
+                                                                  ? Colors.red
+                                                                      .shade600
+                                                                  : const Color(
+                                                                      0xFF1A5F7A),
                                                               fontWeight:
                                                                   FontWeight
                                                                       .w600,
@@ -468,8 +462,7 @@ class _ViewEnrollmentState extends State<ViewEnrollment> {
                                               ],
                                             ),
                                           ),
-                                          // Divider (except last)
-                                          if (entry != filtered.last)
+                                          if (!isLast)
                                             Divider(
                                                 height: 1,
                                                 color: Colors.grey[100]),

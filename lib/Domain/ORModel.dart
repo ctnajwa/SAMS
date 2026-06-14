@@ -1,13 +1,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // FILE: lib/Domain/ORModel.dart
 // Entity Class — PACK112-SAMS-2026
-// Ref: SDD Section 4.1.12 ORModel
-// Handles all database operations for the Open Registration module.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ═══════════════════════════════════════════════════════════════════════════
-// REGISTRAR TABLE (Data Dictionary SDD Page 20)
-// ═══════════════════════════════════════════════════════════════════════════
 class Registrar {
   String regisID;
   String name;
@@ -36,9 +31,6 @@ class Registrar {
       );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// SUBJECT TABLE (Data Dictionary SDD Page 20)
-// ═══════════════════════════════════════════════════════════════════════════
 class Subject {
   String subCode;
   String subName;
@@ -67,16 +59,11 @@ class Subject {
       );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// SECTION TABLE / OFFERING REGISTRATION (Data Dictionary SDD Page 20-21)
-// Used by Registrar: AddOR, EditOR, SubjectOffering
-// Used by Student:   CourseRegistration (viewSection, displayAvailableSubject)
-// ═══════════════════════════════════════════════════════════════════════════
 class OfferingRegistration {
   String sectID;
   String subCode;
-  String subName; // denormalised — untuk display di student page
-  String classType; // ENUM: 'Lecture' | 'Lab'
+  String subName;
+  String classType;
   String sectNo;
   int quota;
   int enrolled;
@@ -105,7 +92,6 @@ class OfferingRegistration {
     required this.session,
   });
 
-  // ── Derived helpers (untuk CourseRegistration student page) ──────────────
   bool get isFull => enrolled >= quota;
   double get fillPercentage => quota > 0 ? enrolled / quota : 0;
   String get enrollmentLabel => '$enrolled/$quota';
@@ -149,25 +135,23 @@ class OfferingRegistration {
       );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// OR SESSION TABLE (Data Dictionary SDD Page 28-29)
-// Used by Registrar: SetSchedule (activateORSession, saveSchedule)
-// Used by Student:   StudentOR (displayORStatus)
-// ═══════════════════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────────────────────
+// OR SESSION
+// ✅ isActive dikira AUTO dari startDate+startTime hingga endDate+endTime
+// Tidak perlu simpan isActive dalam Firestore — dikira setiap kali dari masa semasa
+// ─────────────────────────────────────────────────────────────────────────────
 class ORSession {
   String sessionID;
   String semester;
-  bool isActive;
   String studentYear;
   DateTime startDate;
   DateTime endDate;
-  String startTime;
-  String endTime;
+  String startTime; // format "HH:mm"
+  String endTime; // format "HH:mm"
 
   ORSession({
     required this.sessionID,
     required this.semester,
-    required this.isActive,
     required this.studentYear,
     required this.startDate,
     required this.endDate,
@@ -175,10 +159,63 @@ class ORSession {
     required this.endTime,
   });
 
-  // ── Derived helper — formatted date range untuk banner ───────────────────
-  // e.g. "14 Apr - 16 Apr"
+  // ✅ Auto-calculate isActive dari tarikh DAN masa semasa
+  // isActive = true bila now >= startDate+startTime DAN now <= endDate+endTime
+  bool get isActive {
+    final now = DateTime.now();
+
+    // Parse startTime "HH:mm" → gabung dengan startDate
+    final startParts = startTime.split(':');
+    final endParts = endTime.split(':');
+
+    final sessionStart = DateTime(
+      startDate.year,
+      startDate.month,
+      startDate.day,
+      startParts.length == 2 ? (int.tryParse(startParts[0]) ?? 0) : 0,
+      startParts.length == 2 ? (int.tryParse(startParts[1]) ?? 0) : 0,
+    );
+
+    final sessionEnd = DateTime(
+      endDate.year,
+      endDate.month,
+      endDate.day,
+      endParts.length == 2 ? (int.tryParse(endParts[0]) ?? 23) : 23,
+      endParts.length == 2 ? (int.tryParse(endParts[1]) ?? 59) : 59,
+    );
+
+    return now.isAfter(sessionStart) && now.isBefore(sessionEnd);
+  }
+
+  // Status label untuk display
+  String get statusLabel {
+    final now = DateTime.now();
+    final startParts = startTime.split(':');
+    final endParts = endTime.split(':');
+
+    final sessionStart = DateTime(
+      startDate.year,
+      startDate.month,
+      startDate.day,
+      startParts.length == 2 ? (int.tryParse(startParts[0]) ?? 0) : 0,
+      startParts.length == 2 ? (int.tryParse(startParts[1]) ?? 0) : 0,
+    );
+
+    final sessionEnd = DateTime(
+      endDate.year,
+      endDate.month,
+      endDate.day,
+      endParts.length == 2 ? (int.tryParse(endParts[0]) ?? 23) : 23,
+      endParts.length == 2 ? (int.tryParse(endParts[1]) ?? 59) : 59,
+    );
+
+    if (now.isBefore(sessionStart)) return 'Upcoming';
+    if (now.isAfter(sessionEnd)) return 'Ended';
+    return 'Active';
+  }
+
   String get displayDateRange {
-    String _fmt(DateTime d) {
+    String fmt(DateTime d) {
       const months = [
         '',
         'Jan',
@@ -197,13 +234,13 @@ class ORSession {
       return '${d.day} ${months[d.month]}';
     }
 
-    return '${_fmt(startDate)} - ${_fmt(endDate)}';
+    return '${fmt(startDate)} $startTime - ${fmt(endDate)} $endTime';
   }
 
   Map<String, dynamic> toMap() => {
         'sessionID': sessionID,
         'semester': semester,
-        'isActive': isActive,
+        // ✅ Tidak simpan isActive dalam Firestore
         'studentYear': studentYear,
         'startDate': startDate.toIso8601String(),
         'endDate': endDate.toIso8601String(),
@@ -214,34 +251,27 @@ class ORSession {
   factory ORSession.fromMap(Map<String, dynamic> map) => ORSession(
         sessionID: map['sessionID'] ?? '',
         semester: map['semester'] ?? '',
-        isActive: map['isActive'] ?? false,
+        // ✅ Ignore isActive dari Firestore — kira sendiri
         studentYear: map['studentYear'] ?? '',
         startDate: DateTime.tryParse(map['startDate'] ?? '') ?? DateTime.now(),
         endDate: DateTime.tryParse(map['endDate'] ?? '') ?? DateTime.now(),
-        startTime: map['startTime'] ?? '',
-        endTime: map['endTime'] ?? '',
+        startTime: map['startTime'] ?? '00:00',
+        endTime: map['endTime'] ?? '23:59',
       );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// REGISTRATION TABLE (Data Dictionary SDD Page 21-22)
-// BAHAGIAN STUDENT SAHAJA — rekod pendaftaran kursus oleh student
-// Ref: SDD 4.1.8 CourseRegistration, 4.1.9 RegisteredCourse
-// ═══════════════════════════════════════════════════════════════════════════
 class CourseRegistrationRecord {
-  String regID; // PK VARCHAR(10)
-  String studentID; // FK VARCHAR(10)
-  String sectID; // FK VARCHAR(10) — section yang dipilih student
-  String sessionID; // FK VARCHAR(10) — OR session semasa
-  int totalSub; // INT — jumlah subject student dalam session ini
-  String regStatus; // ENUM: 'Registered' | 'Dropped' | 'Edited'
-  DateTime regAt; // DATETIME — masa student daftar
-
-  // Denormalised fields — dari Subject + OfferingRegistration (untuk display)
+  String regID;
+  String studentID;
+  String sectID;
+  String sessionID;
+  int totalSub;
+  String regStatus;
+  DateTime regAt;
   String subCode;
   String subName;
   int creditHour;
-  String classType; // 'Lecture' | 'Lab'
+  String classType;
   String sectNo;
   String lectName;
   String days;
@@ -271,12 +301,10 @@ class CourseRegistrationRecord {
     this.semester = '',
   });
 
-  // ── Derived helpers ────────────────────────────────────────────────────
   bool get isLecture => classType == 'Lecture';
   bool get isLab => classType == 'Lab';
   String get scheduleLabel => '$days $startTime-$endTime . $venue';
 
-  // saveOR() — SDD 4.1.12: Save the Open Registration data in the database.
   Map<String, dynamic> saveOR() => toMap();
 
   Map<String, dynamic> toMap() => {

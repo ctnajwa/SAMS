@@ -2,8 +2,7 @@
 // FILE: lib/Page/OR/RegisteredCourse.dart
 // Boundary Class — PACK109-SAMS-2026 (RegisteredCourse)
 // Ref: SDD Section 4.1.9 RegisteredCourse
-// Displays all courses registered by the student.
-// Uses existing ORController + CourseRegistrationRecord — NO new model needed.
+// ✅ "+ Add more subject" sekarang navigate ke StudentOR
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'package:flutter/material.dart';
@@ -11,6 +10,7 @@ import 'package:provider/provider.dart';
 import '../../../Provider/ORController.dart';
 import '../../../Domain/ORModel.dart';
 import 'EditCourse.dart';
+import 'StudentOR.dart';
 
 class RegisteredCourse extends StatefulWidget {
   const RegisteredCourse({super.key});
@@ -142,7 +142,25 @@ class _RegisteredCourseState extends State<RegisteredCourse> {
     );
   }
 
-  void _onAddMore() => Navigator.pop(context);
+  // ✅ "+ Add more subject" — navigate ke StudentOR (Course Registration list)
+  // guna ORController yang sama supaya state (registrations, offerings) konsisten
+  void _onAddMore() {
+    final ctrl = context.read<ORController>();
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChangeNotifierProvider.value(
+          value: ctrl,
+          child: StudentOR(
+            studentID: ctrl.studentID,
+            studentName: '',
+            programme: '',
+          ),
+        ),
+      ),
+    );
+  }
 
   void _showSnack(String msg, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(

@@ -11,7 +11,6 @@ class SetSchedule extends StatefulWidget {
 }
 
 class _SetScheduleState extends State<SetSchedule> {
-  // Store saved schedule per year group (local display only)
   final Map<String, Map<String, String>> _schedules = {
     'P1 & P2 students': {},
     'Year 4 students': {},
@@ -26,7 +25,6 @@ class _SetScheduleState extends State<SetSchedule> {
     'Year 2 students',
   ];
 
-  // Map year group label → studentYear value yang disimpan dalam Firestore
   final Map<String, String> _yearGroupToStudentYear = {
     'P1 & P2 students': 'P1P2',
     'Year 4 students': 'Year 4',
@@ -34,15 +32,21 @@ class _SetScheduleState extends State<SetSchedule> {
     'Year 2 students': 'Year 2',
   };
 
+  // ✅ Format semester konsisten dengan SubjectManagement
+  final List<String> _semesterOptions = [
+    'Sem 1 25/26',
+    'Sem 2 25/26',
+    'Short semester',
+  ];
+
   String? _expandedGroup;
   String? _tempStartDate;
   String? _tempEndDate;
   String? _tempStartTime;
   String? _tempEndTime;
-
+  String? _tempSemester;
   bool _isSaving = false;
 
-  // ── Load existing sessions dari Firestore bila page dibuka ─────────────────
   @override
   void initState() {
     super.initState();
@@ -54,7 +58,6 @@ class _SetScheduleState extends State<SetSchedule> {
   void _loadExistingSessions() {
     final ctrl = context.read<ORController>();
     for (final session in ctrl.orSessions) {
-      // Cari group label yang padanan dengan studentYear
       final groupLabel = _yearGroupToStudentYear.entries
           .firstWhere(
             (e) => e.value == session.studentYear,
@@ -69,20 +72,18 @@ class _SetScheduleState extends State<SetSchedule> {
             'endDate': _formatDateForDisplay(session.endDate),
             'startTime': session.startTime,
             'endTime': session.endTime,
-            'isActive': session.isActive.toString(),
             'sessionID': session.sessionID,
+            'semester': session.semester,
+            // ✅ Status dikira dari ORSession.statusLabel — bukan simpan dalam map
           };
         });
       }
     }
   }
 
-  // "2026-04-14 00:00:00.000" → "14-4-2026"
-  String _formatDateForDisplay(DateTime dt) {
-    return '${dt.day}-${dt.month}-${dt.year}';
-  }
+  String _formatDateForDisplay(DateTime dt) =>
+      '${dt.day}-${dt.month}-${dt.year}';
 
-  // "14-4-2026" → DateTime
   DateTime _parseDisplayDate(String date) {
     final parts = date.split('-');
     if (parts.length == 3) {
@@ -95,7 +96,56 @@ class _SetScheduleState extends State<SetSchedule> {
     return DateTime.now();
   }
 
-  // ── Date picker ────────────────────────────────────────────────────────────
+  // ✅ Kira status terus dari tarikh dan masa.
+  // 'Ended' dianggap sama seperti 'Not set' — badge akan tunjuk 'Set' semula
+  String _getStatus(String group) {
+    final data = _schedules[group]!;
+    if (!data.containsKey('startDate')) return 'Not set';
+
+    final ctrl = context.read<ORController>();
+    final studentYear = _yearGroupToStudentYear[group] ?? group;
+
+    String rawStatus;
+    try {
+      final session = ctrl.orSessions.firstWhere(
+        (s) => s.studentYear == studentYear,
+      );
+      rawStatus = session.statusLabel; // 'Active', 'Upcoming', 'Ended'
+    } catch (_) {
+      final startDate = _parseDisplayDate(data['startDate']!);
+      final endDate = _parseDisplayDate(data['endDate']!);
+      final startTimeParts = (data['startTime'] ?? '00:00').split(':');
+      final endTimeParts = (data['endTime'] ?? '23:59').split(':');
+
+      final sessionStart = DateTime(
+        startDate.year,
+        startDate.month,
+        startDate.day,
+        int.tryParse(startTimeParts[0]) ?? 0,
+        int.tryParse(startTimeParts[1]) ?? 0,
+      );
+      final sessionEnd = DateTime(
+        endDate.year,
+        endDate.month,
+        endDate.day,
+        int.tryParse(endTimeParts[0]) ?? 23,
+        int.tryParse(endTimeParts[1]) ?? 59,
+      );
+
+      final now = DateTime.now();
+      if (now.isBefore(sessionStart)) {
+        rawStatus = 'Upcoming';
+      } else if (now.isAfter(sessionEnd)) {
+        rawStatus = 'Ended';
+      } else {
+        rawStatus = 'Active';
+      }
+    }
+
+    // ✅ Ended → treat as Not set, supaya badge jadi 'Set' semula
+    return rawStatus == 'Ended' ? 'Not set' : rawStatus;
+  }
+
   Future<String?> _pickDate(BuildContext context, {String? initial}) async {
     DateTime now = DateTime.now();
     DateTime? init;
@@ -129,7 +179,6 @@ class _SetScheduleState extends State<SetSchedule> {
     return '${picked.day}-${picked.month}-${picked.year}';
   }
 
-  // ── Time picker ────────────────────────────────────────────────────────────
   Future<String?> _pickTime(BuildContext context, {String? initial}) async {
     TimeOfDay init = TimeOfDay.now();
     if (initial != null) {
@@ -158,19 +207,29 @@ class _SetScheduleState extends State<SetSchedule> {
     return '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
   }
 
-  // ── Open form ──────────────────────────────────────────────────────────────
   void _openForm(String group) {
     final existing = _schedules[group]!;
+    final status = _getStatus(group);
+
     setState(() {
       _expandedGroup = group;
-      _tempStartDate = existing['startDate'];
-      _tempEndDate = existing['endDate'];
-      _tempStartTime = existing['startTime'];
-      _tempEndTime = existing['endTime'];
+      // ✅ Semester — guna yang sedia ada, atau default 'Sem 2 25/26'
+      _tempSemester = existing['semester'] ?? _semesterOptions[1];
+      if (status == 'Not set') {
+        // ✅ Belum set ATAU session lama dah tamat — clear tarikh, set baru
+        _tempStartDate = null;
+        _tempEndDate = null;
+        _tempStartTime = existing['startTime']; // kekal masa sebagai default
+        _tempEndTime = existing['endTime'];
+      } else {
+        _tempStartDate = existing['startDate'];
+        _tempEndDate = existing['endDate'];
+        _tempStartTime = existing['startTime'];
+        _tempEndTime = existing['endTime'];
+      }
     });
   }
 
-  // ── Save form → Firestore ──────────────────────────────────────────────────
   Future<void> _saveForm(String group) async {
     if (_tempStartDate == null || _tempEndDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -189,29 +248,16 @@ class _SetScheduleState extends State<SetSchedule> {
     final studentYear = _yearGroupToStudentYear[group] ?? group;
     final existing = _schedules[group]!;
 
-    // Generate sessionID baru atau guna yang lama
     final sessionID = existing['sessionID'] ??
         'SES-$studentYear-${DateTime.now().millisecondsSinceEpoch}';
 
-    // Ambil semester dari session yang ada atau guna default
-    final activeSess = ctrl.orSessions.firstWhere(
-      (s) => s.studentYear == studentYear,
-      orElse: () => ORSession(
-        sessionID: sessionID,
-        semester: 'Sem 2',
-        isActive: false,
-        studentYear: studentYear,
-        startDate: DateTime.now(),
-        endDate: DateTime.now(),
-        startTime: '08:00',
-        endTime: '23:59',
-      ),
-    );
+    // ✅ Guna semester yang dipilih dalam form (konsisten dengan SubjectManagement)
+    final selectedSemester = _tempSemester ?? _semesterOptions[1];
 
     final session = ORSession(
       sessionID: sessionID,
-      semester: activeSess.semester,
-      isActive: activeSess.isActive,
+      semester: selectedSemester,
+      // ✅ Tiada isActive — auto-calculate dari tarikh masa
       studentYear: studentYear,
       startDate: _parseDisplayDate(_tempStartDate!),
       endDate: _parseDisplayDate(_tempEndDate!),
@@ -220,7 +266,6 @@ class _SetScheduleState extends State<SetSchedule> {
     );
 
     try {
-      // ← Simpan ke Firestore melalui ORController
       await ctrl.saveORSession(session);
 
       setState(() {
@@ -229,8 +274,8 @@ class _SetScheduleState extends State<SetSchedule> {
           'endDate': _tempEndDate!,
           if (_tempStartTime != null) 'startTime': _tempStartTime!,
           if (_tempEndTime != null) 'endTime': _tempEndTime!,
-          'isActive': activeSess.isActive.toString(),
           'sessionID': sessionID,
+          'semester': selectedSemester,
         };
         _expandedGroup = null;
         _isSaving = false;
@@ -259,62 +304,11 @@ class _SetScheduleState extends State<SetSchedule> {
     }
   }
 
-  // ── Activate OR Session → Firestore ───────────────────────────────────────
-  Future<void> _activateSession(String group) async {
-    final studentYear = _yearGroupToStudentYear[group] ?? group;
-    final existing = _schedules[group]!;
-
-    if (!existing.containsKey('startDate')) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Please set schedule for $group first.'),
-          backgroundColor: Colors.orange,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
-
-    final ctrl = context.read<ORController>();
-
-    try {
-      // ← Activate di Firestore melalui ORController
-      await ctrl.activateORSession(studentYear, true);
-      await ctrl.activateORSession(studentYear, true);
-
-      setState(() {
-        _schedules[group]!['isActive'] = 'true';
-      });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('OR session for $group activated!'),
-            backgroundColor: const Color(0xFF27AE60),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to activate: $e'),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    }
-  }
-
-  // ── Badge ──────────────────────────────────────────────────────────────────
+  // ✅ Badge tunjuk status auto — Active/Upcoming/Set (kalau Ended atau belum set)
   Widget _buildBadge(String group) {
-    final data = _schedules[group]!;
-    final hasDate = data.containsKey('startDate');
-    final isActive = data['isActive'] == 'true';
+    final status = _getStatus(group);
 
-    if (!hasDate) {
+    if (status == 'Not set') {
       return GestureDetector(
         onTap: () => _openForm(group),
         child: Container(
@@ -336,23 +330,40 @@ class _SetScheduleState extends State<SetSchedule> {
       );
     }
 
+    // Warna ikut status — hanya Active atau Upcoming sampai sini
+    Color bgColor;
+    Widget? leadingIcon;
+
+    switch (status) {
+      case 'Active':
+        bgColor = const Color(0xFF27AE60);
+        leadingIcon = const Icon(Icons.circle, color: Colors.white, size: 8);
+        break;
+      case 'Upcoming':
+        bgColor = const Color(0xFF1A5F7A);
+        leadingIcon = const Icon(Icons.schedule, color: Colors.white, size: 12);
+        break;
+      default:
+        bgColor = Colors.grey;
+    }
+
     return GestureDetector(
       onTap: () => _openForm(group),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
         decoration: BoxDecoration(
-          color: isActive ? const Color(0xFF27AE60) : const Color(0xFF1A5F7A),
+          color: bgColor,
           borderRadius: BorderRadius.circular(20),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (isActive) ...[
-              const Icon(Icons.circle, color: Colors.white, size: 8),
+            if (leadingIcon != null) ...[
+              leadingIcon,
               const SizedBox(width: 4),
             ],
             Text(
-              isActive ? 'Active' : _shortDate(data['startDate']!),
+              status,
               style: const TextStyle(
                 fontSize: 13,
                 color: Colors.white,
@@ -363,31 +374,6 @@ class _SetScheduleState extends State<SetSchedule> {
         ),
       ),
     );
-  }
-
-  String _shortDate(String date) {
-    const months = [
-      '',
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec'
-    ];
-    final parts = date.split('-');
-    if (parts.length == 3) {
-      final d = parts[0];
-      final m = int.tryParse(parts[1]) ?? 0;
-      return '${months[m]} $d';
-    }
-    return date;
   }
 
   Widget _buildTapField({
@@ -438,7 +424,7 @@ class _SetScheduleState extends State<SetSchedule> {
       backgroundColor: const Color(0xFFEEF3F7),
       body: Column(
         children: [
-          // ── Header ────────────────────────────────────────────────────
+          // ── Header ──────────────────────────────────────────────────
           Container(
             decoration: const BoxDecoration(
               gradient: LinearGradient(
@@ -485,7 +471,7 @@ class _SetScheduleState extends State<SetSchedule> {
             ),
           ),
 
-          // ── Body ──────────────────────────────────────────────────────
+          // ── Body ────────────────────────────────────────────────────
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
@@ -522,7 +508,28 @@ class _SetScheduleState extends State<SetSchedule> {
                   ),
                   const SizedBox(height: 16),
 
-                  // ── Priority access card ───────────────────────────────
+                  // ── Status legend ──────────────────────────────────
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        _legendItem(
+                            color: const Color(0xFF27AE60),
+                            label: 'Active — within date & time'),
+                        _legendItem(
+                            color: const Color(0xFF1A5F7A), label: 'Upcoming'),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // ── Priority access card ───────────────────────────
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -548,24 +555,60 @@ class _SetScheduleState extends State<SetSchedule> {
                             color: Color(0xFF1A5F7A),
                           ),
                         ),
-                        const SizedBox(height: 8),
-                        ..._yearGroups.map(
-                          (group) => Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  group,
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    color: Color(0xFF1A2D3D),
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                                _buildBadge(group),
-                              ],
+                        // ✅ Info — OR auto-active berdasarkan masa
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4, bottom: 8),
+                          child: Text(
+                            'OR session status updates automatically based on date and time set.',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey.shade500,
                             ),
+                          ),
+                        ),
+                        ..._yearGroups.map(
+                          (group) => Column(
+                            children: [
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 10),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            group,
+                                            style: const TextStyle(
+                                              fontSize: 14,
+                                              color: Color(0xFF1A2D3D),
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                          // ✅ Tunjuk tarikh, masa & semester kalau dah set
+                                          if (_schedules[group]!
+                                              .containsKey('startDate'))
+                                            Text(
+                                              '${_schedules[group]!['semester'] ?? ''} · '
+                                              '${_schedules[group]!['startDate']} ${_schedules[group]!['startTime'] ?? ''} → '
+                                              '${_schedules[group]!['endDate']} ${_schedules[group]!['endTime'] ?? ''}',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.grey.shade500,
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                    _buildBadge(group),
+                                  ],
+                                ),
+                              ),
+                              if (group != _yearGroups.last)
+                                Divider(height: 1, color: Colors.grey.shade100),
+                            ],
                           ),
                         ),
                       ],
@@ -573,7 +616,7 @@ class _SetScheduleState extends State<SetSchedule> {
                   ),
                   const SizedBox(height: 16),
 
-                  // ── OR Period form ─────────────────────────────────────
+                  // ── OR Period form ─────────────────────────────────
                   if (_expandedGroup != null) ...[
                     Container(
                       width: double.infinity,
@@ -600,7 +643,60 @@ class _SetScheduleState extends State<SetSchedule> {
                               color: Color(0xFF1A5F7A),
                             ),
                           ),
-                          const SizedBox(height: 16),
+                          // ✅ Info — OR akan auto-active bila masa tiba
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4, bottom: 16),
+                            child: Text(
+                              'OR will be automatically active between the start and end date & time.',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey.shade500,
+                              ),
+                            ),
+                          ),
+                          // ✅ Semester dropdown — konsisten dengan SubjectManagement
+                          const Text(
+                            'Semester',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFF7A9AAA),
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFE8F0F5),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                value: _tempSemester,
+                                isExpanded: true,
+                                icon: const Icon(Icons.keyboard_arrow_down,
+                                    color: Color(0xFF1A5F7A)),
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  color: Color(0xFF1A2D3D),
+                                  fontWeight: FontWeight.w500,
+                                ),
+                                items: _semesterOptions
+                                    .map((sem) => DropdownMenuItem(
+                                          value: sem,
+                                          child: Text(sem),
+                                        ))
+                                    .toList(),
+                                onChanged: (val) {
+                                  if (val != null) {
+                                    setState(() => _tempSemester = val);
+                                  }
+                                },
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
                           _buildTapField(
                             label: 'Start Date',
                             value: _tempStartDate,
@@ -650,7 +746,7 @@ class _SetScheduleState extends State<SetSchedule> {
                                       borderRadius: BorderRadius.circular(10),
                                     ),
                                     child: Text(
-                                      _tempStartTime ?? '00:00',
+                                      _tempStartTime ?? '08:00',
                                       textAlign: TextAlign.center,
                                       style: const TextStyle(
                                         fontSize: 14,
@@ -684,7 +780,7 @@ class _SetScheduleState extends State<SetSchedule> {
                                       borderRadius: BorderRadius.circular(10),
                                     ),
                                     child: Text(
-                                      _tempEndTime ?? '00:00',
+                                      _tempEndTime ?? '23:59',
                                       textAlign: TextAlign.center,
                                       style: const TextStyle(
                                         fontSize: 14,
@@ -755,30 +851,7 @@ class _SetScheduleState extends State<SetSchedule> {
                         ],
                       ),
                     ),
-                    const SizedBox(height: 16),
                   ],
-
-                  // ── Activate OR Session button ─────────────────────────
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: _showActivateDialog,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF27AE60),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      child: const Text(
-                        'Activate OR session',
-                        style: TextStyle(
-                            fontSize: 15, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ),
                 ],
               ),
             ),
@@ -788,80 +861,19 @@ class _SetScheduleState extends State<SetSchedule> {
     );
   }
 
-  // ── Activate dialog — pilih year group mana nak activate ──────────────────
-  void _showActivateDialog() {
-    // Cari groups yang dah ada schedule
-    final groupsWithSchedule = _yearGroups
-        .where((g) => _schedules[g]!.containsKey('startDate'))
-        .toList();
-
-    if (groupsWithSchedule.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content:
-              Text('Please set schedule for at least one year group first.'),
-          backgroundColor: Colors.orange,
-          behavior: SnackBarBehavior.floating,
+  Widget _legendItem({required Color color, required String label}) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
-      );
-      return;
-    }
-
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Activate OR Session'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Select year group to activate:'),
-            const SizedBox(height: 12),
-            ...groupsWithSchedule.map(
-              (group) {
-                final isActive = _schedules[group]!['isActive'] == 'true';
-                return ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(group, style: const TextStyle(fontSize: 14)),
-                  subtitle: Text(
-                    isActive ? 'Already active' : 'Not active',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: isActive ? const Color(0xFF27AE60) : Colors.grey,
-                    ),
-                  ),
-                  trailing: isActive
-                      ? const Icon(Icons.check_circle, color: Color(0xFF27AE60))
-                      : ElevatedButton(
-                          onPressed: () {
-                            Navigator.pop(ctx);
-                            _activateSession(group);
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF27AE60),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 8),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
-                          child: const Text('Activate'),
-                        ),
-                );
-              },
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child:
-                const Text('Close', style: TextStyle(color: Color(0xFF1A5F7A))),
-          ),
-        ],
-      ),
+        const SizedBox(width: 4),
+        Text(label,
+            style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
+      ],
     );
   }
 }
